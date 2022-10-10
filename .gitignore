@@ -32,3 +32,5 @@
 *.app
 Deer
 Deer.dSYM
+deps/v8/out.gn
+deps/v8/out

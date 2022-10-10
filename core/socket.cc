@@ -132,6 +132,10 @@ namespace Deer {
       Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, std::move(bs));
       std::shared_ptr<BackingStore> backing = ab->GetBackingStore();
       int bytes = read(socket->handle.watcher.fd, backing->Data(), backing->ByteLength());
+      // TODO
+      if (bytes <= 0) {
+        return;
+      }
       v8::Local<v8::Value> argv[] = {
         Number::New(isolate, bytes),
         Uint8Array::New(ab, 0, bytes)

@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
   // Dispose the isolate and tear down V8.
   isolate->Dispose();
   v8::V8::Dispose();
-  v8::V8::ShutdownPlatform();
+  // v8::V8::ShutdownPlatform();
   delete create_params.array_buffer_allocator;
   return 0;
 }

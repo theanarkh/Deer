@@ -27,7 +27,7 @@ void Deer::Loader::Compile(V8_ARGS) {
       newStringToLcal(isolate, "module"),
     };
     MaybeLocal<Function> fun =
-    ScriptCompiler::CompileFunctionInContext(context, &script_source, 3, params, 0, nullptr);
+    ScriptCompiler::CompileFunction(context, &script_source, 3, params, 0, nullptr);
     if (fun.IsEmpty()) {
       args.GetReturnValue().Set(Undefined(isolate));
     } else {

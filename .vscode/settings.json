@@ -1,0 +1,20 @@
+{
+    "files.associations": {
+        "list": "cpp",
+        "*.inc": "cpp",
+        "ios": "cpp",
+        "__functional_03": "cpp",
+        "functional": "cpp",
+        "vector": "cpp",
+        "array": "cpp",
+        "span": "cpp",
+        "string": "cpp",
+        "string_view": "cpp",
+        "ranges": "cpp",
+        "__config": "cpp",
+        "__nullptr": "cpp",
+        "deque": "cpp",
+        "condition_variable": "cpp",
+        "__mutex_base": "cpp"
+    }
+}

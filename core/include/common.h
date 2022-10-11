@@ -14,6 +14,7 @@ struct io_watcher
     int fd = -1;
     int event = 0;
     int pevent = 0;
+    int flags = 0;
     io_watcher_handler handler = nullptr;
 };
 

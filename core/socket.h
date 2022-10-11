@@ -33,7 +33,7 @@ namespace Deer {
             static void Write(V8_ARGS);
             static void Listen(V8_ARGS);
             static void Accept(V8_ARGS);
-            static  void connect_cb(void * req);
+            static void Close(V8_ARGS);
             TCPHandle handle;
             // int domain;
             // int type;

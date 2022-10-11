@@ -13,11 +13,12 @@
 #include "process.h"
 #include "socket.h"
 #include "console.h"
+#include "vm.h"
+#include "http.h"
+#include "threadpool.h"
 
 namespace Deer {
     namespace Core {
         void register_builtins(Isolate * isolate, Local<Object> No);
-
-
     }
 }

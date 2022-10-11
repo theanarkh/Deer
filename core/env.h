@@ -15,7 +15,6 @@ namespace Deer {
         enum {
             CONTEXT_INDEX
         } ENV_INDEX;
-        
         class Environment {
             public:
                 Environment(Local<Context> context);

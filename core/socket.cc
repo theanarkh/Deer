@@ -77,7 +77,8 @@ namespace Deer {
       }
       int on = 1;
       setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-      socket->handle.watcher.event |= EVFILT_READ;
+      socket->handle.watcher.event = EVFILT_READ;
+      socket->handle.watcher.flags = EV_ADD;
       Local<String> event = newStringToLcal(isolate, "onconnection");
       socket->object()->Set(context, event, args[1].As<Function>());
       socket->handle.watcher.handler = [](struct io_watcher* watcher) {
@@ -118,6 +119,7 @@ namespace Deer {
     V8_CONTEXT
     Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
     socket->handle.watcher.event |= EVFILT_READ;
+    socket->handle.watcher.flags = EV_DELETE;
     Local<String> event = newStringToLcal(isolate, "onread");
     socket->object()->Set(context, event, args[0].As<Function>());
     socket->handle.watcher.handler = [](struct io_watcher* watcher) {   
@@ -132,10 +134,6 @@ namespace Deer {
       Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, std::move(bs));
       std::shared_ptr<BackingStore> backing = ab->GetBackingStore();
       int bytes = read(socket->handle.watcher.fd, backing->Data(), backing->ByteLength());
-      // TODO
-      if (bytes <= 0) {
-        return;
-      }
       v8::Local<v8::Value> argv[] = {
         Number::New(isolate, bytes),
         Uint8Array::New(ab, 0, bytes)
@@ -161,12 +159,45 @@ namespace Deer {
     V8_RETURN(Number::New(isolate, bytes));
   }
 
+  void Socket::Close(V8_ARGS) {
+    V8_ISOLATE
+    V8_CONTEXT
+    Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
+    int fd = socket->handle.watcher.fd;
+    int ret =  close(fd);
+    if (args.Length() > 0) {
+      Local<String> event = newStringToLcal(isolate, "onclose");
+      socket->object()->Set(context, event, args[0].As<Function>());
+    }
+    socket->handle.watcher.event = EV_DELETE;
+    socket->handle.watcher.handler = [](struct io_watcher* watcher) {
+      TCPHandle* handle = container_of(watcher, TCPHandle, watcher);
+      Socket * socket = static_cast<Socket *>(handle->data);
+      Environment* env = socket->env();
+      Isolate* isolate = env->GetIsolate();
+      Local<Context> context = env->GetContext();
+      v8::HandleScope handle_scope(isolate);
+      Context::Scope context_scope(context);
+      struct event_loop* loop = env->get_loop();
+      std::list<struct io_watcher*>::iterator it;
+      for(it = loop->io_watchers.begin(); it != loop->io_watchers.end(); it++) {
+        if(*it == watcher) {
+          loop->io_watchers.erase(it);
+          break;
+        }
+      }
+      socket->makeCallback("onclose", 0, nullptr);
+    };
+    
+    V8_RETURN(Number::New(isolate, ret));
+  }
+
   void Socket::New(V8_ARGS) {
     V8_ISOLATE
     Deer::Env::Environment* env = Deer::Env::Environment::GetEnvByContext(isolate->GetCurrentContext());
     new Socket(env, args.This());
   }
-
+  
   void Socket::Init(Isolate* isolate, Local<Object> target) {
     Local<Object> socket = Object::New(isolate);
     Local<Object> constant = Object::New(isolate);
@@ -224,6 +255,7 @@ namespace Deer {
     SetProtoMethod(isolate, t, "read", Read);
     SetProtoMethod(isolate, t, "listen", Listen);
     SetProtoMethod(isolate, t, "accept", Accept);
+    SetProtoMethod(isolate, t, "close", Close);
     SetConstructorFunction(isolate->GetCurrentContext(), socket, "Socket", t);
     setObjectValue(isolate, target, "socket", socket);
   }

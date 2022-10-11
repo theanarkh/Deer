@@ -28,6 +28,10 @@ function loaderNativeModule() {
             module: 'libs/tcp/index.js',
             name: 'tcp'
         },
+        {
+            module: 'libs/http/index.js',
+            name: 'http'
+        },
     ];
     No.libs = {};
     for (let i = 0; i < modules.length; i++) {

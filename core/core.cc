@@ -8,5 +8,8 @@ void Deer::Core::register_builtins(Isolate * isolate, Local<Object> No) {
     Util::Init(isolate, target);
     Socket::Init(isolate, target);
     Console::Init(isolate, target);
+    VM::Init(isolate, target);
+    HTTP::Init(isolate, target);
+    ThreadPool::Init(isolate, target);
     setObjectValue(isolate, No, "buildin", target);
 }

@@ -1,5 +1,4 @@
 const {
-    console,
     tcp,
     socket,
 } = No.buildin;
@@ -27,8 +26,16 @@ class Socket extends events {
     constructor(options = {}) {
         super();
         this.socket = options.socket;
-        this.socket.read((...args) => {
-            this.emit('data', ...args);
+        this.socket.read((bytes, data) => {
+            if (bytes > 0) {
+                this.emit('data', data, bytes);
+            } else if (bytes < 0){
+                this.socket.close(() => {
+                    this.emit('close');
+                });
+            } else {
+                this.emit('end');
+            }
         });
     }
     write(data) {

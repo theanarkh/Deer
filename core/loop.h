@@ -15,7 +15,7 @@ namespace Deer {
 
         void init_event_system(struct event_loop* loop);
 
-        void poll(struct event_loop* loop);
+        int poll(struct event_loop* loop);
 
         void run_event_system(struct event_loop* loop);
         

@@ -8,10 +8,16 @@ namespace Deer {
         }
     }
 
-    void ThreadPool::submit(dummy fn) {
+    void ThreadPool::submit(thread_pool_request* request) {
         std::lock_guard<std::mutex> lock(mutex);
-        requests.push_back(fn);
+        requests.push_back(request);
         condition_variable.notify_one();
+    }
+
+    void ThreadPool::stop() {
+        for (auto& thread: threads) {
+            thread.join();
+        }
     }
 
     void ThreadPool::worker() {
@@ -21,9 +27,10 @@ namespace Deer {
             {
                 (condition_variable).wait(lock);
             }
-            dummy fn = requests.front();
+            thread_pool_request* request = requests.front();
             requests.pop_front();
-            fn();
+            request->work_fn(request);
+            // TODO
         }
     }
 
@@ -32,9 +39,15 @@ namespace Deer {
     void ThreadPool::Init(v8::Isolate* isolate, v8::Local<v8::Object> target) {
         Local<v8::ObjectTemplate> threadpool = v8::ObjectTemplate::New(isolate);
         setMethod(isolate, threadpool, "test_thread_pool", [](V8_ARGS) {
-            default_thread_pool.submit([]() {
+            thread_pool_request* request = new thread_pool_request();
+            request->work_fn = [](thread_pool_request*) {
                 printf("hello, i am in thread!");
-            });
+            },
+            request->done_fn = [](thread_pool_request*) {
+                printf("hello, i am in main thread!");
+            },
+            request->data = nullptr;
+            default_thread_pool.submit(request);
         });
         setObjectValue(isolate, target, "threadpool", threadpool->NewInstance(isolate->GetCurrentContext()).ToLocalChecked());
     }

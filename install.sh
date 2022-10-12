@@ -1,3 +1,4 @@
+set -e
 # Get depot_tools
 mkdir -p deps && cd deps
 if [ ! -d "depot_tools" ]; then

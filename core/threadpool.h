@@ -10,22 +10,29 @@
 #include "util.h"
 #include "env.h"
 
-typedef void(*dummy)();
-
 namespace Deer {
+    struct thread_pool_request;
+    typedef void(*work)(thread_pool_request*);
+    typedef void(*done)(thread_pool_request*);
 
+    struct thread_pool_request {
+        work work_fn;
+        done done_fn;
+        void *data;
+    };
     class ThreadPool {
         public:
             ThreadPool(int count = 10);
-            void submit(dummy fn);
+            void submit(thread_pool_request* request);
             void worker();  
+            void stop();  
             static void Init(Isolate* isolate, Local<Object> target);
             static ThreadPool default_thread_pool;
         private:
             std::vector<std::thread> threads;
             std::condition_variable condition_variable;
-            std::deque<dummy> requests;
-            std::mutex mutex;  
+            std::deque<thread_pool_request*> requests;
+            std::mutex mutex;
     };
 }
 

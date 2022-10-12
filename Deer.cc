@@ -11,6 +11,7 @@
 #include "core/core.h"
 #include "core/util.h"
 #include "core/loop.h"
+#include "core/threadpool.h"
 
 
 using namespace v8;
@@ -78,5 +79,6 @@ int main(int argc, char* argv[]) {
   v8::V8::Dispose();
   // v8::V8::ShutdownPlatform();
   delete create_params.array_buffer_allocator;
+  Deer::ThreadPool::default_thread_pool.stop();
   return 0;
 }

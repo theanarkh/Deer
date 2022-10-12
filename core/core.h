@@ -16,6 +16,7 @@
 #include "vm.h"
 #include "http.h"
 #include "threadpool.h"
+#include "fs.h"
 
 namespace Deer {
     namespace Core {

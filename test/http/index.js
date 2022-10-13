@@ -8,8 +8,9 @@ http.createServer((req, res) => {
     req.on('data', (buffer) => {
         console.log(buffer);
     });
+    // TODO
     req.on('end', () => {
-        console.log('end');
+        // console.log('end');
     });
     const body  = `<html>
         <head></head>

@@ -8,7 +8,7 @@
 #include <list>
 
 struct io_watcher;
-typedef void (*io_watcher_handler) (struct io_watcher* watcher);
+typedef void (*io_watcher_handler) (struct io_watcher* watcher, int events);
 struct io_watcher
 {
     int fd = -1;
@@ -18,20 +18,24 @@ struct io_watcher
     io_watcher_handler handler = nullptr;
 };
 
-struct Handle
-{
-   void* data = nullptr;
+struct buffer {
+    char *data = nullptr;
+    int offset = 0;
+    int len = 0;
 };
 
-struct TCPHandle: public Handle
+struct BaseHandle
 {
-    io_watcher watcher;
+   void* data = nullptr;
 };
 
 struct event_loop
 {
    int event_fd = -1;
-   std::list<struct io_watcher*> io_watchers;
+   int event_fd_count = 0;
+   io_watcher async_reader_io_watcher;
+   int async_writer_fd = -1;
+   std::list<io_watcher*> io_watchers;
 };
 
 enum class RequestType {

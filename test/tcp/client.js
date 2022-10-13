@@ -4,6 +4,6 @@ socket.on('connect', () => {
     console.log('connected');
 });
 socket.on('data', (data) => {
-    console.log(data.toString());
+    console.log(`${data.toString()}\n`);
     socket.write('world');
 });

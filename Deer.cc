@@ -74,11 +74,9 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // Dispose the isolate and tear down V8.
   isolate->Dispose();
   v8::V8::Dispose();
-  // v8::V8::ShutdownPlatform();
   delete create_params.array_buffer_allocator;
-  Deer::ThreadPool::default_thread_pool.stop();
+  // Deer::ThreadPool::default_thread_pool.stop();
   return 0;
 }

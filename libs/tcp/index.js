@@ -1,6 +1,7 @@
 const {
     tcp,
     socket,
+    console,
 } = No.buildin;
 const { constant } = socket;
 const { events } = No.libs;
@@ -42,7 +43,11 @@ class Socket extends events {
         if (typeof data === 'string') {
             data = Buffer.from(data);
         }
-        this.socket.write(data);
+        const writeRequest = new socket.WriteRequest();
+        writeRequest.oncomplete = () => {
+            console.log('done\n');
+        };
+        this.socket.write(data, writeRequest);
     }
 }
 

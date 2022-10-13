@@ -1,14 +1,104 @@
 #include "socket.h"      
 
 namespace Deer {
+  static void handle_read(struct io_watcher* watcher) {
+    Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
+    Socket * socket = static_cast<Socket *>(handle->data);
+    Environment* env = socket->env();
+    Isolate* isolate = env->GetIsolate();
+    Local<Context> context = env->GetContext();
+    v8::HandleScope handle_scope(isolate);
+    Context::Scope context_scope(context);
+    std::unique_ptr<BackingStore> bs = ArrayBuffer::NewBackingStore(isolate, 1024);
+    Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, std::move(bs));
+    std::shared_ptr<BackingStore> backing = ab->GetBackingStore();
+    int bytes = read(socket->handle.watcher.fd, backing->Data(), backing->ByteLength());
+    v8::Local<v8::Value> argv[] = {
+      Number::New(isolate, bytes),
+      Uint8Array::New(ab, 0, bytes)
+    };
+    socket->makeCallback("onread", 2, argv);
+  }
+
+  static void handle_write(struct io_watcher* watcher) {
+    Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
+    Socket * socket = static_cast<Socket *>(handle->data);
+    Environment* env = socket->env();
+    Isolate* isolate = env->GetIsolate();
+    Local<Context> context = env->GetContext();
+    v8::HandleScope handle_scope(isolate);
+    Context::Scope context_scope(context);
+    int size = socket->handle.write_queue.size();
+    for (int i = 0; i < size; i++) {
+      Socket::WriteRequest* write_request = socket->handle.write_queue.front();
+      int bytes;
+      do {
+        bytes = write(socket->handle.watcher.fd, write_request->buf.data + write_request->buf.offset, write_request->buf.len);
+      } while(bytes == -1 && errno == EINTR);
+      // TODO
+      if (bytes == 0) {
+        break;
+      } else if (bytes > 0) {
+        write_request->buf.offset += bytes;
+        if (write_request->buf.offset == write_request->buf.len) {
+          // v8::Local<v8::Value> argv[] = {
+          //   Number::New(isolate, bytes),
+          //   Uint8Array::New(ab, 0, bytes)
+          // };
+          write_request->makeCallback("oncomplete", 0, nullptr);
+          socket->handle.write_queue.pop_front();
+          delete[] write_request->buf.data;
+        } else {
+          break;
+        }
+      } else if (bytes == EAGAIN) {
+        break;
+      } else {
+        printf("write error: %d\n", errno);
+      }
+    }
+    if (socket->handle.write_queue.size() == 0) {
+      socket->handle.watcher.pevent &= ~POLL_OUT;
+    }
+  }
+
+  static void handle_remove(struct io_watcher* watcher) {
+    printf("remove io watcher\n");
+    Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
+    Socket * socket = static_cast<Socket *>(handle->data);
+    Environment* env = socket->env();
+    struct event_loop* loop = env->get_loop();
+    std::list<struct io_watcher*>::iterator it;
+    for(it = loop->io_watchers.begin(); it != loop->io_watchers.end(); it++) {
+      if(*it == watcher) {
+        loop->io_watchers.erase(it);
+
+        break;
+      }
+    }
+  };
+
+  static void io_watch_handler(struct io_watcher* watcher, int events) {
+    if (events == 0) {
+      handle_remove(watcher);
+    } else {
+      if (events & POLL_IN) {
+        handle_read(watcher);
+      }
+      if(events & POLL_OUT) {
+        handle_write(watcher);
+      }
+    }
+  }
 
   Socket::Socket(Deer::Env::Environment* env, Local<Object> object): Deer::Async(env, object) {
       handle.data = this;
+      handle.watcher.handler = io_watch_handler;
   }
 
   static struct sockaddr_in HandleAddrInfo(V8_ARGS) {
       V8_ISOLATE
-      String::Utf8Value ip(isolate, args[0]); 
+      String::Utf8Value ip(isolate, args[0]);
       int port = args[1].As<Integer>()->Value(); 
       struct sockaddr_in serv_addr;
       memset(&serv_addr, 0, sizeof(serv_addr));
@@ -18,7 +108,7 @@ namespace Deer {
       return serv_addr;
   }
 
-  void Socket::Bind(V8_ARGS) {   
+  DEFIND_FUNC(Socket::Bind) {   
       V8_ISOLATE
       Socket * socket_ = Deer::BaseObject::unwrap<Socket>(args.Holder());
       int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -28,7 +118,7 @@ namespace Deer {
       V8_RETURN(Integer::New(isolate, ret));
   }
 
-  void Socket::Connect(V8_ARGS) {  
+  DEFIND_FUNC(Socket::Connect) {  
       // V8_ISOLATE
       // int fd = args[0].As<Integer>()->Value();
       // struct sockaddr_in peer_addr_info = HandleAddrInfo(args);
@@ -55,7 +145,7 @@ namespace Deer {
       // SubmitRequest((struct request*)req, io_uring_data);
   }
 
-  void Socket::Setsockopt(V8_ARGS) {    
+  DEFIND_FUNC(Socket::Setsockopt) {    
       int fd = args[0].As<Integer>()->Value();
       int level = args[1].As<Integer>()->Value();
       int name = args[2].As<Integer>()->Value();
@@ -64,7 +154,7 @@ namespace Deer {
       setsockopt(fd, level, name, (void *)&value, len);
   }
 
-  void Socket::Listen(V8_ARGS) {
+  DEFIND_FUNC(Socket::Listen) {
       V8_ISOLATE
       V8_CONTEXT
       Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
@@ -77,12 +167,11 @@ namespace Deer {
       }
       int on = 1;
       setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-      socket->handle.watcher.event = EVFILT_READ;
-      socket->handle.watcher.flags = EV_ADD;
+      socket->handle.watcher.pevent = POLL_IN;
       Local<String> event = newStringToLcal(isolate, "onconnection");
       socket->object()->Set(context, event, args[1].As<Function>());
-      socket->handle.watcher.handler = [](struct io_watcher* watcher) {
-        TCPHandle* handle = container_of(watcher, TCPHandle, watcher);
+      socket->handle.watcher.handler = [](struct io_watcher* watcher, int events) {
+        Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
         Socket * server_socket = static_cast<Socket *>(handle->data);
         Environment* env = server_socket->env();
         Isolate* isolate = env->GetIsolate();
@@ -107,59 +196,70 @@ namespace Deer {
       V8_RETURN(Integer::New(isolate, 0));
   }
 
-  void Socket::Accept(V8_ARGS) {
+  DEFIND_FUNC(Socket::Accept) {
       V8_ISOLATE
       Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
       int clientFd = accept(socket->handle.watcher.fd, nullptr, nullptr);
       V8_RETURN(Integer::New(isolate, clientFd));;
   }
 
-  void Socket::Read(V8_ARGS) {
+
+  DEFIND_FUNC(Socket::Read) {
     V8_ISOLATE
     V8_CONTEXT
     Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
-    socket->handle.watcher.event |= EVFILT_READ;
-    socket->handle.watcher.flags = EV_DELETE;
     Local<String> event = newStringToLcal(isolate, "onread");
     socket->object()->Set(context, event, args[0].As<Function>());
-    socket->handle.watcher.handler = [](struct io_watcher* watcher) {   
-      TCPHandle* handle = container_of(watcher, TCPHandle, watcher);
-      Socket * socket = static_cast<Socket *>(handle->data);
-      Environment* env = socket->env();
-      Isolate* isolate = env->GetIsolate();
-      Local<Context> context = env->GetContext();
-      v8::HandleScope handle_scope(isolate);
-      Context::Scope context_scope(context);
-      std::unique_ptr<BackingStore> bs = ArrayBuffer::NewBackingStore(isolate, 1024);
-      Local<ArrayBuffer> ab = ArrayBuffer::New(isolate, std::move(bs));
-      std::shared_ptr<BackingStore> backing = ab->GetBackingStore();
-      int bytes = read(socket->handle.watcher.fd, backing->Data(), backing->ByteLength());
-      v8::Local<v8::Value> argv[] = {
-        Number::New(isolate, bytes),
-        Uint8Array::New(ab, 0, bytes)
-      };
-      socket->makeCallback("onread", 2, argv);
-    };
+    socket->handle.watcher.pevent |= POLL_IN;
+    if (socket->handle.watcher.pevent == socket->handle.watcher.event) {
+      return;
+    }
     Deer::Env::Environment* env = Deer::Env::Environment::GetEnvByContext(isolate->GetCurrentContext());
     struct event_loop* loop = env->get_loop();
-    loop->io_watchers.push_back(&socket->handle.watcher);
+    std::list<io_watcher*>::iterator it = std::find(loop->io_watchers.begin(),loop->io_watchers.end(), &socket->handle.watcher);
+      
+    if(it == loop->io_watchers.end()) {
+      loop->io_watchers.push_back(&socket->handle.watcher);
+    }
   }
 
-  void Socket::Write(V8_ARGS) { 
+  Socket::WriteRequest::WriteRequest(Deer::Env::Environment* env, Local<Object> object, buffer& _buf): Deer::Async(env, object), buf(_buf) {
+
+  }
+
+  DEFIND_FUNC(Socket::Write) { 
     V8_ISOLATE
     V8_CONTEXT
     Local<Uint8Array> uint8Array = args[0].As<Uint8Array>();
     Local<ArrayBuffer> arrayBuffer = uint8Array->Buffer();
     std::shared_ptr<BackingStore> backing = arrayBuffer->GetBackingStore();
+    Local<Object> write_obj = args[1].As<Object>();
     Environment *env = Environment::GetEnvByContext(context);
     Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
-    int fd = socket->handle.watcher.fd; 
-    // TODO
-    int bytes = write(fd, backing->Data(), backing->ByteLength());
-    V8_RETURN(Number::New(isolate, bytes));
+    int fd = socket->handle.watcher.fd;
+    int len = backing->ByteLength();
+    char* data = new char[len];
+    memcpy(static_cast<char*>(data), backing->Data(), len);
+    buffer buf = {
+      data,
+      0,
+      len,
+    };
+    Socket::WriteRequest* write_request = new Socket::WriteRequest(env, write_obj, buf);
+    socket->handle.write_queue.push_back(write_request);
+    socket->handle.watcher.pevent |= POLL_OUT;
+    if (socket->handle.watcher.pevent == socket->handle.watcher.event) {
+      return;
+    }
+    struct event_loop* loop = env->get_loop();
+    std::list<io_watcher*>::iterator it = std::find(loop->io_watchers.begin(),loop->io_watchers.end(), &socket->handle.watcher);
+
+    if(it == loop->io_watchers.end()) {
+      loop->io_watchers.push_back(&socket->handle.watcher);
+    }
   }
 
-  void Socket::Close(V8_ARGS) {
+  DEFIND_FUNC(Socket::Close) {
     V8_ISOLATE
     V8_CONTEXT
     Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
@@ -169,9 +269,10 @@ namespace Deer {
       Local<String> event = newStringToLcal(isolate, "onclose");
       socket->object()->Set(context, event, args[0].As<Function>());
     }
-    socket->handle.watcher.event = EV_DELETE;
-    socket->handle.watcher.handler = [](struct io_watcher* watcher) {
-      TCPHandle* handle = container_of(watcher, TCPHandle, watcher);
+    
+    socket->handle.watcher.pevent = 0;
+    socket->handle.watcher.handler = [](struct io_watcher* watcher, int events) {
+      Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
       Socket * socket = static_cast<Socket *>(handle->data);
       Environment* env = socket->env();
       Isolate* isolate = env->GetIsolate();
@@ -201,7 +302,8 @@ namespace Deer {
   void Socket::Init(Isolate* isolate, Local<Object> target) {
     Local<Object> socket = Object::New(isolate);
     Local<Object> constant = Object::New(isolate);
-    Environment* env = Environment::GetEnvByContext(isolate->GetCurrentContext());
+    Local<Context> context = isolate->GetCurrentContext();
+    Environment* env = Environment::GetEnvByContext(context);
     {
       Local<Object> domain = Object::New(isolate);
       setObjectValue(isolate, domain, "AF_UNIX", Number::New(isolate, AF_UNIX));
@@ -256,7 +358,11 @@ namespace Deer {
     SetProtoMethod(isolate, t, "listen", Listen);
     SetProtoMethod(isolate, t, "accept", Accept);
     SetProtoMethod(isolate, t, "close", Close);
-    SetConstructorFunction(isolate->GetCurrentContext(), socket, "Socket", t);
+    SetConstructorFunction(context, socket, "Socket", t);
+
+    Local<FunctionTemplate> write_request = NewFunctionTemplate(isolate);
+    write_request->InstanceTemplate()->SetInternalFieldCount(1);
+    SetConstructorFunction(context, socket, "WriteRequest", write_request);
     setObjectValue(isolate, target, "socket", socket);
   }
 }

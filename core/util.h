@@ -48,7 +48,7 @@ namespace Deer {
         
         v8::Local<v8::FunctionTemplate> NewFunctionTemplate(
             v8::Isolate* isolate,
-            v8::FunctionCallback callback,
+            v8::FunctionCallback callback = nullptr,
             v8::Local<v8::Signature> signature = v8::Local<v8::Signature>(),
             v8::ConstructorBehavior behavior = v8::ConstructorBehavior::kAllow,
             v8::SideEffectType side_effect = v8::SideEffectType::kHasSideEffect,

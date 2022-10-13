@@ -12,9 +12,11 @@ namespace Deer {
     class BaseObject {
         public:
             BaseObject(Environment* env, Local<Object> object);
-            ~BaseObject();
+            virtual ~BaseObject();
             Environment* env() const;
             Local<Object> object();
+            void MakeWeak();
+            void ClearWeak();
             template <typename T>
             static T * unwrap(Local<Object> object) {
                 return static_cast<T*>(object->GetAlignedPointerFromInternalField(0));

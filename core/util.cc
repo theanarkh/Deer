@@ -242,3 +242,8 @@ inline v8::Local<v8::String> Deer::Util::OneByteString(v8::Isolate* isolate,
              isolate, data, v8::NewStringType::kNormal, length)
       .ToLocalChecked();
 }
+
+int Deer::Util::unblock(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);  
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}

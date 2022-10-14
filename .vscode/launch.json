@@ -6,7 +6,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/Deer",
-            "args": ["${workspaceFolder}/test/tcp/server.js"],
+            "args": ["${workspaceFolder}/test/tcp/clie.js"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

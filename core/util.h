@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "include/common.h"
 
 using namespace v8;
@@ -117,7 +118,7 @@ namespace Deer {
         inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                                 const unsigned char* data,
                                                 int length = -1);
-
+        int unblock(int fd);
     }
 }
 

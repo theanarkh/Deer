@@ -9,6 +9,11 @@
 
 struct io_watcher;
 typedef void (*io_watcher_handler) (struct io_watcher* watcher, int events);
+
+struct Task {
+
+};
+
 struct io_watcher
 {
     int fd = -1;
@@ -36,6 +41,7 @@ struct event_loop
    io_watcher async_reader_io_watcher;
    int async_writer_fd = -1;
    std::list<io_watcher*> io_watchers;
+   std::list<Task*> pending_tasks;
 };
 
 enum class RequestType {

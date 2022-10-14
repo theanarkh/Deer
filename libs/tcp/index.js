@@ -1,5 +1,4 @@
 const {
-    tcp,
     socket,
     console,
 } = No.buildin;
@@ -16,8 +15,8 @@ class Server extends events {
         this.socket.bind(options.host, options.port);
         return this.socket.listen(512, (socket) => {
             const s = new Socket({socket});
+            s.read();
             this.connections++;
-            // const serverSocket = new ServerSocket({fd: clientFd});
             this.emit('connection', s);
         });
     }
@@ -26,16 +25,19 @@ class Server extends events {
 class Socket extends events {
     constructor(options = {}) {
         super();
-        this.socket = options.socket;
+        this.socket = options.socket || new socket.Socket();
+    }
+    read() {
         this.socket.read((bytes, data) => {
             if (bytes > 0) {
                 this.emit('data', data, bytes);
-            } else if (bytes < 0){
+            } else {
                 this.socket.close(() => {
                     this.emit('close');
                 });
-            } else {
-                this.emit('end');
+                if (bytes == 0) {
+                    this.emit('end');
+                }
             }
         });
     }
@@ -49,34 +51,13 @@ class Socket extends events {
         };
         this.socket.write(data, writeRequest);
     }
-}
-
-class ClientSocket extends Socket {
-    constructor(options = {}) {
-        super(options);
-        const fd = tcp.socket(constant.domain.AF_INET, constant.type.SOCK_STREAM);
-        tcp.bind(fd, '127.0.0.1', 18989);
-    }
-}
-
-class ServerSocket extends Socket {
-    constructor(options = {}) {
-        super(options);
-        this.fd = options.fd;
-        this.read();
-    }
-    read() {
-        const buffer = Buffer.alloc(1024);
-        tcp.read(this.fd, buffer, 0, (status) => {
-            if (status === 0) {
-                this.emit('end');
-            } else if (status > 0){
-                this.emit('data', buffer);
-                this.read();
-            } else {
-                this.emit('error', new Error('read socket error'));
-            }
-        })
+    connect(ip, port) {
+        const connectRequest = new socket.ConnectRequest();
+        connectRequest.oncomplete = () => {
+            console.log("connect successfully");
+            this.read();
+        }
+        return this.socket.connect(ip, port, connectRequest);
     }
 }
 
@@ -87,4 +68,5 @@ function createServer(...arg) {
 module.exports = {
     createServer,
     Server,
+    Socket,
 }

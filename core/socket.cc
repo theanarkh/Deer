@@ -72,10 +72,29 @@ namespace Deer {
     for(it = loop->io_watchers.begin(); it != loop->io_watchers.end(); it++) {
       if(*it == watcher) {
         loop->io_watchers.erase(it);
-
         break;
       }
     }
+  };
+
+  static void handle_connect(io_watcher* watcher) {
+    Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
+    Socket * socket = (Socket*)handle->data;
+    int error = 1;
+    socklen_t errorsize = sizeof(int);
+    getsockopt(socket->handle.watcher.fd, SOL_SOCKET, SO_ERROR, &error, &errorsize);
+    if (error == EINPROGRESS)
+      return;
+    Isolate* isolate = socket->env()->GetIsolate();
+    Local<Context> context = socket->env()->GetContext();
+    v8::HandleScope handle_scope(isolate);
+    Context::Scope context_scope(context);
+    Local<Value> args[] = {
+      Number::New(isolate, error)
+    };
+    socket->handle.connect_request->makeCallback("oncomplete", 1, args);
+    socket->handle.watcher.pevent &= ~POLL_OUT;
+    socket->handle.connect_request = nullptr;
   };
 
   static void io_watch_handler(struct io_watcher* watcher, int events) {
@@ -86,7 +105,13 @@ namespace Deer {
         handle_read(watcher);
       }
       if(events & POLL_OUT) {
-        handle_write(watcher);
+        Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
+        Socket * socket = (Socket*)handle->data;
+        if (socket->handle.connect_request) {
+          handle_connect(watcher);
+        } else {
+          handle_write(watcher);
+        }
       }
     }
   }
@@ -119,30 +144,27 @@ namespace Deer {
   }
 
   DEFIND_FUNC(Socket::Connect) {  
-      // V8_ISOLATE
-      // int fd = args[0].As<Integer>()->Value();
-      // struct sockaddr_in peer_addr_info = HandleAddrInfo(args);
-      // V8_CONTEXT
-      // Environment *env = Environment::GetEnvByContext(context);
-      // struct io_uring_info *io_uring_data = env->GetIOUringData();
-      // // 申请内存
-      // struct connect_request *req = (struct connect_request *)malloc(sizeof(struct connect_request));
-      // // to do
-      // memset(req, 0, sizeof(*req));
-      // req->fd = fd;
-      // req->addr = (struct sockaddr *)&peer_addr_info;
-      // req->addrlen = sizeof(peer_addr_info);
-      // req->op = IORING_OP_CONNECT;
-      // req->cb = makeCallback<onconnect>;
-      // if (args.Length() > 3 && args[3]->IsFunction()) {
-      //     Local<Object> obj = Object::New(isolate);
-      //     Local<String> event = newStringToLcal(isolate, onconnect);
-      //     obj->Set(context, event, args[3].As<Function>());
-    //     req->data = (void *)new RequestContext(env, obj);
-      // } else {
-      //     req->data = (void *)new RequestContext(env, Local<Function>());
-      // }
-      // SubmitRequest((struct request*)req, io_uring_data);
+    V8_ISOLATE
+    V8_CONTEXT
+    Environment *env = Environment::GetEnvByContext(context);
+    event_loop* loop = env->get_loop();
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
+    socket->handle.watcher.fd = fd;
+    unblock(fd);
+    struct sockaddr_in peer_addr_info = HandleAddrInfo(args);
+    Local<Object> req_obj = args[2].As<Object>();
+  
+    int ret = connect(fd, (struct sockaddr *)&peer_addr_info, sizeof(peer_addr_info));
+    if (ret == 0 || (ret == -1 && errno == EINPROGRESS)) {
+      ConnectRequest* connect_request = new ConnectRequest(env, req_obj);
+      socket->handle.connect_request = connect_request;
+      socket->handle.watcher.pevent |= POLL_OUT;
+      loop->io_watchers.push_back(&socket->handle.watcher);
+      V8_RETURN(Number::New(isolate, 0));
+    } else {
+      V8_RETURN(Number::New(isolate, errno));
+    }
   }
 
   DEFIND_FUNC(Socket::Setsockopt) {    
@@ -227,6 +249,10 @@ namespace Deer {
 
   }
 
+  Socket::ConnectRequest::ConnectRequest(Deer::Env::Environment* env, Local<Object> object): Deer::Async(env, object) {
+
+  }
+
   DEFIND_FUNC(Socket::Write) { 
     V8_ISOLATE
     V8_CONTEXT
@@ -264,31 +290,14 @@ namespace Deer {
     V8_CONTEXT
     Socket * socket = Deer::BaseObject::unwrap<Socket>(args.Holder());
     int fd = socket->handle.watcher.fd;
-    int ret =  close(fd);
+    int ret = close(fd);
     if (args.Length() > 0) {
       Local<String> event = newStringToLcal(isolate, "onclose");
       socket->object()->Set(context, event, args[0].As<Function>());
     }
     
     socket->handle.watcher.pevent = 0;
-    socket->handle.watcher.handler = [](struct io_watcher* watcher, int events) {
-      Socket::TCPHandle* handle = container_of(watcher, Socket::TCPHandle, watcher);
-      Socket * socket = static_cast<Socket *>(handle->data);
-      Environment* env = socket->env();
-      Isolate* isolate = env->GetIsolate();
-      Local<Context> context = env->GetContext();
-      v8::HandleScope handle_scope(isolate);
-      Context::Scope context_scope(context);
-      struct event_loop* loop = env->get_loop();
-      std::list<struct io_watcher*>::iterator it;
-      for(it = loop->io_watchers.begin(); it != loop->io_watchers.end(); it++) {
-        if(*it == watcher) {
-          loop->io_watchers.erase(it);
-          break;
-        }
-      }
-      socket->makeCallback("onclose", 0, nullptr);
-    };
+    socket->makeCallback("onclose");
     
     V8_RETURN(Number::New(isolate, ret));
   }
@@ -357,12 +366,18 @@ namespace Deer {
     SetProtoMethod(isolate, t, "read", Read);
     SetProtoMethod(isolate, t, "listen", Listen);
     SetProtoMethod(isolate, t, "accept", Accept);
+    SetProtoMethod(isolate, t, "connect", Connect);
     SetProtoMethod(isolate, t, "close", Close);
     SetConstructorFunction(context, socket, "Socket", t);
 
     Local<FunctionTemplate> write_request = NewFunctionTemplate(isolate);
     write_request->InstanceTemplate()->SetInternalFieldCount(1);
     SetConstructorFunction(context, socket, "WriteRequest", write_request);
+
+    Local<FunctionTemplate> connect_request = NewFunctionTemplate(isolate);
+    connect_request->InstanceTemplate()->SetInternalFieldCount(1);
+    SetConstructorFunction(context, socket, "ConnectRequest", connect_request);
+
     setObjectValue(isolate, target, "socket", socket);
   }
 }

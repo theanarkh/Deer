@@ -41,8 +41,13 @@ namespace Deer {
                 }
                 buffer buf;
             };
+            struct ConnectRequest: public Async {
+                ConnectRequest(Deer::Env::Environment* env, Local<Object> object);
+                
+            };
             struct TCPHandle: public BaseHandle
             {
+                ConnectRequest* connect_request;
                 std::list<WriteRequest*> write_queue;
                 io_watcher watcher;
             };

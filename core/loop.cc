@@ -33,6 +33,9 @@ int Deer::Loop::poll(struct event_loop* loop) {
     }
     struct timespec *timeout = nullptr;
     loop->event_fd_count += nevent;
+    if (loop->event_fd_count == 0) {
+        return 0;
+    }
 	int n = kevent(loop->event_fd, events, nevent, ready_events, MAX_EVENT_SIZE, timeout);
     if (n > 0) {
         for (int i = 0; i < n; i++) {
@@ -40,6 +43,7 @@ int Deer::Loop::poll(struct event_loop* loop) {
             int event = 0;
             if (watcher->pevent == 0) {
                 struct kevent event[1];
+                loop->event_fd_count--;
                 EV_SET(&event[0], watcher->fd, ready_events[i].filter, EV_DELETE, 0, 0, nullptr);
                 kevent(loop->event_fd, event, 1, nullptr, 0, nullptr);
                 watcher->handler(watcher, 0);
@@ -49,6 +53,7 @@ int Deer::Loop::poll(struct event_loop* loop) {
                     watcher->handler(watcher, POLL_IN);
                 } else {
                     struct kevent event[1];
+                    loop->event_fd_count--;
                     EV_SET(&event[0], watcher->fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
                     kevent(loop->event_fd, event, 1, nullptr, 0, nullptr);
                 }
@@ -57,6 +62,7 @@ int Deer::Loop::poll(struct event_loop* loop) {
                     watcher->handler(watcher, POLL_OUT);
                 } else {
                     struct kevent event[1];
+                    loop->event_fd_count--;
                     EV_SET(&event[0], watcher->fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
                     kevent(loop->event_fd, event, 1, nullptr, 0, nullptr);
                 }
